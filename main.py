@@ -8,6 +8,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask, request, jsonify
 import logging
 import sys
+
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  CREATOR: TARIKUL ISLAM
 # ║  TELEGRAN: https://t.me/paglu_dev
@@ -57,7 +58,7 @@ def reset_limits():
             logger.error(f"Error in reset_limits thread: {e}")
 
 
-# === UTILS (unchanged logic) ===
+# === UTILS ===
 
 def is_user_in_channel(user_id):
     try:
@@ -119,7 +120,7 @@ def webhook():
         return '', 500
 
 
-# === TELEGRAM COMMANDS
+# === TELEGRAM COMMANDS (ORDERED FOR PRIORITY) ===
 
 @bot.message_handler(commands=['start'])
 def start_command(message):
@@ -132,8 +133,44 @@ def start_command(message):
         return
     if user_id not in like_tracker:
         like_tracker[user_id] = {"used": 0, "last_used": datetime.now() - timedelta(days=1)}
-    bot.reply_to(message, "✅ You're verified! Use /like to send likes.", parse_mode="Markdown")
+    bot.reply_to(message, "✅ You're verified! Use /like to send likes.\nHelp Menu: Use /like [region] [uid]", parse_mode="Markdown")
 
+@bot.message_handler(commands=['help'])
+def help_command(message):
+    user_id = message.from_user.id
+
+    # For owner, show owner commands directly
+    if user_id == OWNER_ID:
+        help_text = (
+            f"📖 *Bot Commands:*\n\n"
+            f"🧑‍💻 `/like <region> <uid>` - Send likes to Free Fire UID\n"
+            f"🔰 `/start` - Start or verify\n"
+            f"🆘 `/help` - Show this help menu\n\n"
+            f"👑 *Owner Commands:*\n"
+            f"📈 `/remain` - Show all users' usage & stats\n\n"
+            f"📞 *Support:* {OWNER_USERNAME}"
+        )
+        bot.reply_to(message, help_text, parse_mode="Markdown")
+        return
+
+    # For regular users, check channel membership first
+    if not is_user_in_channel(user_id):
+        markup = InlineKeyboardMarkup()
+        for channel in REQUIRED_CHANNELS:
+            markup.add(InlineKeyboardButton(f"🔗 Join {channel}", url=f"https://t.me/{channel.strip('@')}") )
+        bot.reply_to(message, "❌ You must join all our channels to use this command.", reply_markup=markup, parse_mode="Markdown")
+        return
+
+    # Show regular user help
+    help_text = (
+        f"📖 *Bot Commands:*\n\n"
+        f"🧑‍💻 `/like <region> <uid>` - Send likes to Free Fire UID\n"
+        f"🔰 `/start` - Start or verify\n"
+        f"🆘 `/help` - Show this help menu\n\n"
+        f"📞 *Support:* {OWNER_USERNAME}\n"
+        f"🔗 Join our channels for updates!"
+    )
+    bot.reply_to(message, help_text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['like'])
 def handle_like(message):
@@ -260,50 +297,15 @@ def owner_commands(message):
         bot.reply_to(message, "\n".join(lines), parse_mode="Markdown")
 
 
-@bot.message_handler(commands=['help'])
-def help_command(message):
-    user_id = message.from_user.id
-
-    # For owner, show owner commands directly
-    if user_id == OWNER_ID:
-        help_text = (
-            f"📖 *Bot Commands:*\n\n"
-            f"🧑‍💻 `/like <region> <uid>` - Send likes to Free Fire UID\n"
-            f"🔰 `/start` - Start or verify\n"
-            f"🆘 `/help` - Show this help menu\n\n"
-            f"👑 *Owner Commands:*\n"
-            f"📈 `/remain` - Show all users' usage & stats\n\n"
-            f"📞 *Support:* {OWNER_USERNAME}"
-        )
-        bot.reply_to(message, help_text, parse_mode="Markdown")
-        return
-
-    # For regular users, check channel membership first
-    if not is_user_in_channel(user_id):
-        markup = InlineKeyboardMarkup()
-        for channel in REQUIRED_CHANNELS:
-            markup.add(InlineKeyboardButton(f"🔗 Join {channel}", url=f"https://t.me/{channel.strip('@')}") )
-        bot.reply_to(message, "❌ You must join all our channels to use this command.", reply_markup=markup, parse_mode="Markdown")
-        return
-
-    # Show regular user help
-    help_text = (
-        f"📖 *Bot Commands:*\n\n"
-        f"🧑‍💻 `/like <region> <uid>` - Send likes to Free Fire UID\n"
-        f"🔰 `/start` - Start or verify\n"
-        f"🆘 `/help` - Show this help menu\n\n"
-        f"📞 *Support:* {OWNER_USERNAME}\n"
-        f"🔗 Join our channels for updates!"
-    )
-    bot.reply_to(message, help_text, parse_mode="Markdown")
-
-
 @bot.message_handler(func=lambda message: True, content_types=['text'])
 def reply_all(message):
     if message.text.startswith('/'):
         # Handle unknown commands - only reply if it's actually an unknown command
         known_commands = ['/start', '/like', '/help', '/remain']
         command = message.text.split()[0].lower()
+        if command not in known_commands:
+            # Optionally handle unknown command here
+            pass
         return
 
 
