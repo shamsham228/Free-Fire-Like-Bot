@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 
 # ========== BOT CONFIGURATION ==========
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("8747572174:AAHvwcb3FINMiPnhpiqXREW4xjLxrsAZH6Q")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
 PORT = int(os.getenv("PORT", 5000))
 
