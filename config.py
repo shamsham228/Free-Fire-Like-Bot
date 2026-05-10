@@ -6,7 +6,7 @@ from datetime import datetime
 
 # ========== BOT CONFIGURATION ==========
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
+WEBHOOK_URL = ""
 PORT = int(os.getenv("PORT", 5000))
 
 # Telegram settings
