@@ -25,7 +25,7 @@ REQUIRED_CHANNELS = ["@liketutorial228"]
 GROUP_JOIN_LINK = "https://t.me/liketutorial228group"
 OWNER_ID = 6602027873
 OWNER_USERNAME = "@Jingen_333"
-API_BASE_URL = "https://free-fire-like-api-mocha.vercel.app"
+API_BASE_URL = "https://free-fire-like-kifl1rlvh-shamsham228s-projects.vercel.app"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 like_tracker = {}
