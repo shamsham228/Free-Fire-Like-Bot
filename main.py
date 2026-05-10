@@ -224,3 +224,12 @@ def reply_all(message):
 if __name__ == '__main__':
     logger.info("Starting bot...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
+
+if __name__ == "__main__":
+    print("Bot started")
+
+    bot.remove_webhook()
+
+    time.sleep(2)
+
+    bot.infinity_polling(skip_pending=True)
