@@ -5,7 +5,7 @@ import time
 import threading
 from datetime import datetime, timedelta
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from flask import Flask, request
+from flask import Flask, request, jsonify
 import logging
 import sys
 
@@ -22,19 +22,23 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
 PORT = int(os.getenv("PORT", 5000))
 
 if not BOT_TOKEN:
-    logger.error("❌ BOT_TOKEN not found in environment variables!")
+    logger.error("❌ BOT_TOKEN not found!")
     sys.exit(1)
 
 REQUIRED_CHANNELS = ["@liketutorial228"]
 GROUP_JOIN_LINK = "https://t.me/liketutorial228group"
 OWNER_ID = 6602027873
 OWNER_USERNAME = "@Jingen_333"
-API_BASE_URL = "https://free-fire-like-api-chi-neon.vercel.app"  # Use the working API
+
+# 🔴 UPDATE THIS WITH YOUR NEW VERCEL API URL
+API_BASE_URL = "https://free-fire-like-api-chi-neon.vercel.app"
 
 # ===== BOT & APP INITIALIZATION =====
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
 app = Flask(__name__)
 like_tracker = {}
+
+logger.info(f"🔗 API URL: {API_BASE_URL}")
 
 # ===== FUNCTIONS =====
 
@@ -75,18 +79,21 @@ def call_api(uid, region):
     """Call the API to send like"""
     url = f"{API_BASE_URL}/like?uid={uid}&server_name={region.upper()}"
     try:
-        logger.info(f"🔗 Calling API: {url}")
+        logger.info(f"🔗 API Call: {url}")
         response = requests.get(url, timeout=30)
+        
+        logger.info(f"📊 API Status: {response.status_code}")
         
         if response.status_code == 200:
             data = response.json()
-            logger.info(f"✅ API Response: {data}")
+            logger.info(f"✅ API Response: Status={data.get('status')}")
             return data
         else:
-            logger.error(f"❌ API Error {response.status_code}")
+            logger.error(f"❌ API Error {response.status_code}: {response.text[:100]}")
             return {"error": f"API Error {response.status_code}", "status": 0}
     except requests.timeout:
-        return {"error": "API Request Timeout", "status": 0}
+        logger.error("⏱️ API Request Timeout")
+        return {"error": "API Request Timeout (30s)", "status": 0}
     except Exception as e:
         logger.error(f"❌ API call error: {e}")
         return {"error": str(e), "status": 0}
@@ -101,10 +108,17 @@ def format_response(data):
     """Format API response for Telegram"""
     try:
         if "error" in data:
-            return f"❌ *Error*\n{data['error']}"
+            return f"❌ *Error*\n`{data['error']}`"
         
         if data.get("status") != 1:
-            return "❌ *Failed to send like*\nTry again later"
+            return (
+                f"⚠️ *Failed to Send Like*\n\n"
+                f"This may happen if:\n"
+                f"• Player doesn't exist\n"
+                f"• Already has max likes\n"
+                f"• API is temporarily down\n\n"
+                f"Try again later!"
+            )
         
         player_name = data.get("PlayerNickname", "Unknown")
         player_uid = data.get("UID", "N/A")
@@ -115,7 +129,7 @@ def format_response(data):
         level = data.get("PlayerLevel", 0)
         
         return (
-            f"✅ *Success*\n\n"
+            f"✅ *Success!*\n\n"
             f"👤 *Name:* `{player_name}`\n"
             f"🆔 *UID:* `{player_uid}`\n"
             f"🏆 *Level:* `{level}`\n"
@@ -135,7 +149,7 @@ def start_command(message):
     user_id = message.from_user.id
     username = message.from_user.username or "User"
     
-    logger.info(f"👤 User started: {username} ({user_id})")
+    logger.info(f"👤 User /start: {username} ({user_id})")
     
     if not is_user_in_channel(user_id):
         markup = InlineKeyboardMarkup()
@@ -158,8 +172,8 @@ def start_command(message):
         message,
         "✅ *Verified!*\n\n"
         "Use `/like <region> <uid>` to send likes\n\n"
-        "Example: `/like IND 123456789`\n\n"
-        "Supported Regions: IND, BD, BR, US, GLOBAL"
+        "📝 *Example:* `/like IND 123456789`\n\n"
+        "🌍 *Regions:* IND, BD, BR, US, GLOBAL"
     )
 
 @bot.message_handler(commands=['help'])
@@ -180,7 +194,12 @@ def help_command(message):
         "🎯 `/like <region> <uid>` - Send like to player\n"
         "📊 `/remain` - Check remaining likes\n"
         "🆘 `/help` - Show this message\n\n"
-        "**Regions:** IND, BD, BR, US, GLOBAL\n\n"
+        "*Supported Regions:*\n"
+        "• IND - India\n"
+        "• BD - Bangladesh\n"
+        "• BR - Brazil\n"
+        "• US - USA\n"
+        "• GLOBAL - Global\n\n"
         f"👑 *Owner:* {OWNER_USERNAME}"
     )
     
@@ -288,7 +307,7 @@ def process_like(message, user_id, region, uid):
         
     except Exception as e:
         logger.error(f"❌ Process error: {e}")
-        bot.reply_to(message, f"❌ *Error*\n{str(e)[:100]}")
+        bot.reply_to(message, f"❌ *Error*\n`{str(e)[:100]}`")
 
 @bot.message_handler(commands=['remain'])
 def show_remain(message):
@@ -323,15 +342,16 @@ def handle_all_messages(message):
 
 @app.route('/')
 def index():
-    return {
+    return jsonify({
         'status': '✅ Bot Running',
         'bot_name': 'Free Fire Likes Bot',
-        'health': 'OK'
-    }
+        'health': 'OK',
+        'api_url': API_BASE_URL
+    })
 
 @app.route('/health')
 def health():
-    return {'status': 'healthy'}, 200
+    return jsonify({'status': 'healthy'}), 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -352,10 +372,20 @@ if __name__ == '__main__':
     # Start limit reset thread
     threading.Thread(target=reset_limits, daemon=True).start()
     
-    # Start polling
-    logger.info("🔔 Bot is listening for messages...")
-    try:
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
-    except Exception as e:
-        logger.error(f"❌ Bot error: {e}")
-        sys.exit(1)
+    # Check if webhook URL is set (for production)
+    if WEBHOOK_URL:
+        logger.info(f"🌐 Using Webhook mode: {WEBHOOK_URL}")
+        try:
+            bot.set_webhook(url=WEBHOOK_URL)
+            app.run(host="0.0.0.0", port=PORT, debug=False)
+        except Exception as e:
+            logger.error(f"Webhook setup error: {e}")
+            logger.info("Falling back to polling...")
+            bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    else:
+        logger.info("🔔 Using Polling mode")
+        try:
+            bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        except Exception as e:
+            logger.error(f"❌ Bot error: {e}")
+            sys.exit(1)
