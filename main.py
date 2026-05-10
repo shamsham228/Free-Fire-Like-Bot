@@ -382,17 +382,23 @@ def start_bot_polling():
     """Run bot polling in background"""
     logger.info("🔔 Starting bot polling in background thread...")
     try:
+        # Remove any existing webhook
+        bot.remove_webhook()
+        logger.info("✅ Webhook removed")
+        
+        # Start polling
         bot.infinity_polling(timeout=10, long_polling_timeout=5)
     except Exception as e:
         logger.error(f"❌ Bot polling error: {e}")
+        time.sleep(5)  # Wait before retrying
         sys.exit(1)
-
 # ===== MAIN =====
 
 if __name__ == '__main__':
     logger.info("=" * 70)
     logger.info("🚀 Starting Free Fire Likes Bot...")
     logger.info("=" * 70)
+    logger.info("📌 Mode: POLLING ONLY (webhook disabled)")
     
     # Start limit reset thread
     reset_thread = threading.Thread(target=reset_limits, daemon=True)
@@ -404,8 +410,8 @@ if __name__ == '__main__':
     bot_thread.start()
     logger.info("✅ Bot polling thread started")
     
-    # Start Flask app on Render
-    logger.info(f"🌐 Starting Flask on port {PORT}...")
+    # Start Flask app on Render (for health checks only)
+    logger.info(f"🌐 Starting Flask on port {PORT} (health checks only)...")
     try:
         app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
     except Exception as e:
