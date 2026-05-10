@@ -1,4 +1,3 @@
-
 services:
   - type: web
     name: free-fire-bot
@@ -10,6 +9,8 @@ services:
         sync: false
       - key: WEBHOOK_URL
         sync: false
+      - key: PORT
+        value: "5000"
     scaling:
       minInstances: 1
       maxInstances: 1
