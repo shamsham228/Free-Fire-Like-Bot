@@ -3,7 +3,7 @@ import telebot
 import requests
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask, request, jsonify
 import logging
@@ -41,11 +41,15 @@ logger.info(f"📢 Required Channels: {REQUIRED_CHANNELS}")
 
 # ===== FUNCTIONS =====
 
+def get_utc_now():
+    """Get current UTC time (handles deprecation warning)"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 def reset_limits():
     """Reset daily limits at 00:00 UTC"""
     while True:
         try:
-            now_utc = datetime.utcnow()
+            now_utc = get_utc_now()
             next_reset = (now_utc + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
             sleep_seconds = (next_reset - now_utc).total_seconds()
             
@@ -105,7 +109,7 @@ def call_api(uid, region):
     except requests.timeout:
         logger.error("⏱️ API Request Timeout")
         return {
-            "error": ERRORS["api_timeout"],
+            "error": "API Request Timeout",
             "status": 0
         }
     except Exception as e:
@@ -160,7 +164,7 @@ def start_command(message):
         return
     
     if user_id not in like_tracker:
-        like_tracker[user_id] = {"used": 0, "last_used": datetime.utcnow() - timedelta(days=1)}
+        like_tracker[user_id] = {"used": 0, "last_used": get_utc_now() - timedelta(days=1)}
     
     bot.reply_to(message, SUCCESS["start_message"])
 
@@ -221,7 +225,7 @@ def handle_like(message):
 def process_like(message, user_id, region, uid):
     """Process like request"""
     try:
-        now_utc = datetime.utcnow()
+        now_utc = get_utc_now()
         
         # Initialize user tracker
         if user_id not in like_tracker:
@@ -317,7 +321,7 @@ def show_stats(message):
         f"👥 *Total Users:* `{total_users}`\n"
         f"❤️ *Total Likes Sent:* `{total_likes_sent}`\n"
         f"🔗 *API Status:* `{API_BASE_URL}`\n"
-        f"🕐 *Server Time:* `{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC`"
+        f"🕐 *Server Time:* `{get_utc_now().strftime('%Y-%m-%d %H:%M:%S')} UTC`"
     )
     
     bot.reply_to(message, stats_text)
@@ -336,7 +340,8 @@ def index():
         'bot_name': 'Free Fire Likes Bot',
         'version': '2.0',
         'health': 'OK',
-        'api_url': API_BASE_URL
+        'api_url': API_BASE_URL,
+        'timestamp': get_utc_now().isoformat()
     })
 
 @app.route('/health')
@@ -344,8 +349,21 @@ def health():
     return jsonify({
         'status': 'healthy',
         'users_tracked': len(like_tracker),
-        'api_url': API_BASE_URL
+        'api_url': API_BASE_URL,
+        'timestamp': get_utc_now().isoformat()
     }), 200
+
+@app.route('/stats')
+def stats():
+    total_users = len(like_tracker)
+    total_likes = sum(u.get("used", 0) for u in like_tracker.values())
+    
+    return jsonify({
+        'total_users': total_users,
+        'total_likes_sent': total_likes,
+        'api_url': API_BASE_URL,
+        'timestamp': get_utc_now().isoformat()
+    })
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -358,6 +376,17 @@ def webhook():
         logger.error(f"Webhook error: {e}")
         return '', 500
 
+# ===== BOT POLLING IN BACKGROUND THREAD =====
+
+def start_bot_polling():
+    """Run bot polling in background"""
+    logger.info("🔔 Starting bot polling in background thread...")
+    try:
+        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    except Exception as e:
+        logger.error(f"❌ Bot polling error: {e}")
+        sys.exit(1)
+
 # ===== MAIN =====
 
 if __name__ == '__main__':
@@ -366,22 +395,19 @@ if __name__ == '__main__':
     logger.info("=" * 70)
     
     # Start limit reset thread
-    threading.Thread(target=reset_limits, daemon=True).start()
+    reset_thread = threading.Thread(target=reset_limits, daemon=True)
+    reset_thread.start()
+    logger.info("✅ Reset thread started")
     
-    # Check if webhook URL is set (for production)
-    if WEBHOOK_URL:
-        logger.info(f"🌐 Using Webhook mode: {WEBHOOK_URL}")
-        try:
-            bot.set_webhook(url=WEBHOOK_URL)
-            app.run(host="0.0.0.0", port=PORT, debug=False)
-        except Exception as e:
-            logger.error(f"Webhook setup error: {e}")
-            logger.info("Falling back to polling...")
-            bot.infinity_polling(timeout=10, long_polling_timeout=5)
-    else:
-        logger.info("🔔 Using Polling mode")
-        try:
-            bot.infinity_polling(timeout=10, long_polling_timeout=5)
-        except Exception as e:
-            logger.error(f"❌ Bot error: {e}")
-            sys.exit(1)
+    # Start bot polling in background thread
+    bot_thread = threading.Thread(target=start_bot_polling, daemon=True)
+    bot_thread.start()
+    logger.info("✅ Bot polling thread started")
+    
+    # Start Flask app on Render
+    logger.info(f"🌐 Starting Flask on port {PORT}...")
+    try:
+        app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
+    except Exception as e:
+        logger.error(f"❌ Flask error: {e}")
+        sys.exit(1)
