@@ -9,36 +9,35 @@ from flask import Flask, request, jsonify
 import logging
 import sys
 
+# ===== IMPORT CONFIG =====
+from config import (
+    BOT_TOKEN, WEBHOOK_URL, PORT, REQUIRED_CHANNELS, GROUP_JOIN_LINK,
+    OWNER_ID, OWNER_USERNAME, API_BASE_URL, API_TIMEOUT,
+    LIKE_LIMITS, ERRORS, SUCCESS, SUPPORTED_REGIONS, DEFAULT_REGION,
+    get_user_limit, get_user_type, LOG_LEVEL, LOG_FORMAT
+)
+
 # ===== LOGGING =====
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=LOG_LEVEL,
+    format=LOG_FORMAT
 )
 logger = logging.getLogger(__name__)
 
-# ===== CONFIGURATION =====
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
-PORT = int(os.getenv("PORT", 5000))
-
+# ===== VALIDATION =====
 if not BOT_TOKEN:
-    logger.error("❌ BOT_TOKEN not found!")
+    logger.error(ERRORS["no_token"])
     sys.exit(1)
-
-REQUIRED_CHANNELS = ["@liketutorial228"]
-GROUP_JOIN_LINK = "https://t.me/liketutorial228group"
-OWNER_ID = 6602027873
-OWNER_USERNAME = "@Jingen_333"
-
-# 🔴 UPDATE THIS WITH YOUR NEW VERCEL API URL
-API_BASE_URL = "https://free-fire-like-api-chi-neon.vercel.app"
 
 # ===== BOT & APP INITIALIZATION =====
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
 app = Flask(__name__)
 like_tracker = {}
 
-logger.info(f"🔗 API URL: {API_BASE_URL}")
+logger.info(f"✅ Bot initialized")
+logger.info(f"🔗 API: {API_BASE_URL}")
+logger.info(f"👑 Owner: {OWNER_USERNAME} (ID: {OWNER_ID})")
+logger.info(f"📢 Required Channels: {REQUIRED_CHANNELS}")
 
 # ===== FUNCTIONS =====
 
@@ -75,12 +74,21 @@ def is_user_in_channel(user_id):
         logger.error(f"❌ Channel check error: {e}")
         return False
 
+def send_channel_join_message(message):
+    """Send channel join prompt"""
+    markup = InlineKeyboardMarkup()
+    for channel in REQUIRED_CHANNELS:
+        channel_name = channel.lstrip('@')
+        markup.add(InlineKeyboardButton(f"🔗 Join {channel}", url=f"https://t.me/{channel_name}"))
+    
+    bot.reply_to(message, ERRORS["not_member"], reply_markup=markup)
+
 def call_api(uid, region):
     """Call the API to send like"""
     url = f"{API_BASE_URL}/like?uid={uid}&server_name={region.upper()}"
     try:
         logger.info(f"🔗 API Call: {url}")
-        response = requests.get(url, timeout=30)
+        response = requests.get(url, timeout=API_TIMEOUT)
         
         logger.info(f"📊 API Status: {response.status_code}")
         
@@ -89,36 +97,32 @@ def call_api(uid, region):
             logger.info(f"✅ API Response: Status={data.get('status')}")
             return data
         else:
-            logger.error(f"❌ API Error {response.status_code}: {response.text[:100]}")
-            return {"error": f"API Error {response.status_code}", "status": 0}
+            logger.error(f"❌ API Error {response.status_code}")
+            return {
+                "error": f"API Error {response.status_code}",
+                "status": 0
+            }
     except requests.timeout:
         logger.error("⏱️ API Request Timeout")
-        return {"error": "API Request Timeout (30s)", "status": 0}
+        return {
+            "error": ERRORS["api_timeout"],
+            "status": 0
+        }
     except Exception as e:
         logger.error(f"❌ API call error: {e}")
-        return {"error": str(e), "status": 0}
-
-def get_user_limit(user_id):
-    """Get daily like limit for user"""
-    if user_id == OWNER_ID:
-        return 999999
-    return 10  # Regular users: 10 likes per day
+        return {
+            "error": ERRORS["api_error"].format(error=str(e)[:50]),
+            "status": 0
+        }
 
 def format_response(data):
     """Format API response for Telegram"""
     try:
         if "error" in data:
-            return f"❌ *Error*\n`{data['error']}`"
+            return f"❌ *Error*\n{data['error']}"
         
         if data.get("status") != 1:
-            return (
-                f"⚠️ *Failed to Send Like*\n\n"
-                f"This may happen if:\n"
-                f"• Player doesn't exist\n"
-                f"• Already has max likes\n"
-                f"• API is temporarily down\n\n"
-                f"Try again later!"
-            )
+            return ERRORS["failed_to_send"]
         
         player_name = data.get("PlayerNickname", "Unknown")
         player_uid = data.get("UID", "N/A")
@@ -140,7 +144,7 @@ def format_response(data):
         )
     except Exception as e:
         logger.error(f"Format error: {e}")
-        return "⚠️ Error formatting response"
+        return ERRORS["processing_error"]
 
 # ===== TELEGRAM COMMANDS =====
 
@@ -152,58 +156,23 @@ def start_command(message):
     logger.info(f"👤 User /start: {username} ({user_id})")
     
     if not is_user_in_channel(user_id):
-        markup = InlineKeyboardMarkup()
-        for channel in REQUIRED_CHANNELS:
-            channel_name = channel.lstrip('@')
-            markup.add(InlineKeyboardButton(f"🔗 Join {channel}", url=f"https://t.me/{channel_name}"))
-        
-        bot.reply_to(
-            message,
-            "📢 *Channel Verification Required*\n\n"
-            "To use this bot, you must join our channel first.",
-            reply_markup=markup
-        )
+        send_channel_join_message(message)
         return
     
     if user_id not in like_tracker:
         like_tracker[user_id] = {"used": 0, "last_used": datetime.utcnow() - timedelta(days=1)}
     
-    bot.reply_to(
-        message,
-        "✅ *Verified!*\n\n"
-        "Use `/like <region> <uid>` to send likes\n\n"
-        "📝 *Example:* `/like IND 123456789`\n\n"
-        "🌍 *Regions:* IND, BD, BR, US, GLOBAL"
-    )
+    bot.reply_to(message, SUCCESS["start_message"])
 
 @bot.message_handler(commands=['help'])
 def help_command(message):
     user_id = message.from_user.id
     
     if not is_user_in_channel(user_id):
-        markup = InlineKeyboardMarkup()
-        for channel in REQUIRED_CHANNELS:
-            channel_name = channel.lstrip('@')
-            markup.add(InlineKeyboardButton(f"🔗 Join {channel}", url=f"https://t.me/{channel_name}"))
-        
-        bot.reply_to(message, "❌ Join our channel first", reply_markup=markup)
+        send_channel_join_message(message)
         return
     
-    help_text = (
-        "📖 *Available Commands:*\n\n"
-        "🎯 `/like <region> <uid>` - Send like to player\n"
-        "📊 `/remain` - Check remaining likes\n"
-        "🆘 `/help` - Show this message\n\n"
-        "*Supported Regions:*\n"
-        "• IND - India\n"
-        "• BD - Bangladesh\n"
-        "• BR - Brazil\n"
-        "• US - USA\n"
-        "• GLOBAL - Global\n\n"
-        f"👑 *Owner:* {OWNER_USERNAME}"
-    )
-    
-    bot.reply_to(message, help_text)
+    bot.reply_to(message, SUCCESS["help_message"])
 
 @bot.message_handler(commands=['like'])
 def handle_like(message):
@@ -223,28 +192,27 @@ def handle_like(message):
     
     # Check channel membership
     if not is_user_in_channel(user_id):
-        markup = InlineKeyboardMarkup()
-        for channel in REQUIRED_CHANNELS:
-            channel_name = channel.lstrip('@')
-            markup.add(InlineKeyboardButton(f"🔗 Join {channel}", url=f"https://t.me/{channel_name}"))
-        
-        bot.reply_to(message, "❌ Join our channel first", reply_markup=markup)
+        send_channel_join_message(message)
         return
     
     # Validate format
     if len(args) != 3:
-        bot.reply_to(
-            message,
-            "❌ *Invalid Format*\n\n"
-            "Use: `/like <region> <uid>`\n"
-            "Example: `/like IND 123456789`"
-        )
+        bot.reply_to(message, ERRORS["invalid_format"])
         return
     
     region, uid = args[1].upper(), args[2]
     
+    # Validate input
     if not region.isalpha() or not uid.isdigit():
-        bot.reply_to(message, "⚠️ *Invalid Input*\nRegion must be letters, UID must be numbers")
+        bot.reply_to(message, ERRORS["invalid_input"])
+        return
+    
+    # Validate region
+    if region not in SUPPORTED_REGIONS:
+        bot.reply_to(
+            message,
+            f"⚠️ *Invalid Region*\n\nSupported regions: {', '.join(SUPPORTED_REGIONS)}"
+        )
         return
     
     # Process in background
@@ -270,9 +238,7 @@ def process_like(message, user_id, region, uid):
         if usage["used"] >= max_limit:
             bot.reply_to(
                 message,
-                f"⚠️ *Daily Limit Exceeded*\n\n"
-                f"Your limit: {max_limit} likes/day\n"
-                f"Come back tomorrow!"
+                ERRORS["daily_limit"].format(limit=max_limit)
             )
             return
         
@@ -307,7 +273,7 @@ def process_like(message, user_id, region, uid):
         
     except Exception as e:
         logger.error(f"❌ Process error: {e}")
-        bot.reply_to(message, f"❌ *Error*\n`{str(e)[:100]}`")
+        bot.reply_to(message, f"{ERRORS['processing_error']}\n\n`{str(e)[:100]}`")
 
 @bot.message_handler(commands=['remain'])
 def show_remain(message):
@@ -328,10 +294,33 @@ def show_remain(message):
             used = usage.get("used", 0)
             limit_str = "∞" if limit > 1000 else str(limit)
             remaining = limit - used if limit <= 1000 else "∞"
+            user_type = get_user_type(uid)
             
-            lines.append(f"`{uid}` → {used}/{limit_str} (Remaining: {remaining})")
+            lines.append(f"`{uid}` ({user_type}) → {used}/{limit_str} (Remaining: {remaining})")
     
     bot.reply_to(message, "\n".join(lines))
+
+@bot.message_handler(commands=['stats'])
+def show_stats(message):
+    """Show bot statistics"""
+    user_id = message.from_user.id
+    
+    if user_id != OWNER_ID:
+        bot.reply_to(message, "❌ *Owner Only Command*")
+        return
+    
+    total_users = len(like_tracker)
+    total_likes_sent = sum(u.get("used", 0) for u in like_tracker.values())
+    
+    stats_text = (
+        f"📈 *Bot Statistics:*\n\n"
+        f"👥 *Total Users:* `{total_users}`\n"
+        f"❤️ *Total Likes Sent:* `{total_likes_sent}`\n"
+        f"🔗 *API Status:* `{API_BASE_URL}`\n"
+        f"🕐 *Server Time:* `{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC`"
+    )
+    
+    bot.reply_to(message, stats_text)
 
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
@@ -345,13 +334,18 @@ def index():
     return jsonify({
         'status': '✅ Bot Running',
         'bot_name': 'Free Fire Likes Bot',
+        'version': '2.0',
         'health': 'OK',
         'api_url': API_BASE_URL
     })
 
 @app.route('/health')
 def health():
-    return jsonify({'status': 'healthy'}), 200
+    return jsonify({
+        'status': 'healthy',
+        'users_tracked': len(like_tracker),
+        'api_url': API_BASE_URL
+    }), 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -367,7 +361,9 @@ def webhook():
 # ===== MAIN =====
 
 if __name__ == '__main__':
+    logger.info("=" * 70)
     logger.info("🚀 Starting Free Fire Likes Bot...")
+    logger.info("=" * 70)
     
     # Start limit reset thread
     threading.Thread(target=reset_limits, daemon=True).start()
