@@ -3,14 +3,9 @@ services:
     name: free-fire-bot
     env: python
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python main.py"
+    startCommand: "gunicorn main:app"
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: WEBHOOK_URL
-        sync: false
       - key: PORT
         value: "5000"
-    scaling:
-      minInstances: 1
-      maxInstances: 1
