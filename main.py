@@ -29,7 +29,7 @@ REQUIRED_CHANNELS = ["@liketutorial228"]
 GROUP_JOIN_LINK = "https://t.me/liketutorial228group"
 OWNER_ID = 6602027873
 OWNER_USERNAME = "@Jingen_333"
-API_BASE_URL = "https://free-fire-like-kifl1rlvh-shamsham228s-projects.vercel.app"  # Use the working API
+API_BASE_URL = "https://free-fire-like-api-chi-neon.vercel.app"  # Use the working API
 
 # ===== BOT & APP INITIALIZATION =====
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
