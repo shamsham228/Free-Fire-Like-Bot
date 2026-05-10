@@ -22,10 +22,10 @@ API_TIMEOUT = 30
 # ========== LIKE LIMITS (Based on account level) ==========
 LIKE_LIMITS = {
     "level_1_2": {
-        "daily_limit": 20,           # Max 20 likes per day
-        "likes_per_uid": 5,          # Max 5 likes per target
-        "requests_per_call": 5,      # Send 5 requests
-        "delay_between_requests": 0.8  # 800ms delay
+        "daily_limit": 20,
+        "likes_per_uid": 5,
+        "requests_per_call": 5,
+        "delay_between_requests": 0.8
     },
     "level_3_10": {
         "daily_limit": 50,
@@ -48,8 +48,8 @@ LIKE_LIMITS = {
 }
 
 # ========== RATE LIMITING ==========
-USER_DAILY_REQUESTS = 1  # Regular users: 1 request per day
-OWNER_DAILY_REQUESTS = 999999  # Owner: unlimited
+USER_DAILY_REQUESTS = 1
+OWNER_DAILY_REQUESTS = 999999
 
 # ========== LOGGING ==========
 LOG_LEVEL = "INFO"
