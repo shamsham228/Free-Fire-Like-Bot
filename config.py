@@ -16,7 +16,7 @@ OWNER_ID = 6602027873
 OWNER_USERNAME = "@Jingen_333"
 
 # ========== API CONFIGURATION ==========
-API_BASE_URL = "https://free-fire-like-api-chi-neon.vercel.app"
+API_BASE_URL = "https://free-fire-like-api-three-alpha.vercel.app"
 API_TIMEOUT = 30
 
 # ========== LIKE LIMITS (Based on User Type) ==========
