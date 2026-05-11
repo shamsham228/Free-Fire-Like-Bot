@@ -94,11 +94,11 @@ def call_api(uid, region):
         logger.info(f"🔗 API Call: {url}")
         response = requests.get(url, timeout=API_TIMEOUT)
         
-        logger.info(f"📊 API Status: {response.status_code}")
+        logger.info(f"📊 API Response Status: {response.status_code}")
         
         if response.status_code == 200:
             data = response.json()
-            logger.info(f"✅ API Response: Status={data.get('status')}")
+            logger.info(f"✅ API Response: {data}")
             return data
         else:
             logger.error(f"❌ API Error {response.status_code}")
@@ -106,28 +106,43 @@ def call_api(uid, region):
                 "error": f"API Error {response.status_code}",
                 "status": 0
             }
-    except requests.timeout:
+    except requests.Timeout:
         logger.error("⏱️ API Request Timeout")
         return {
-            "error": "API Request Timeout",
+            "error": "API request timed out. Please try again.",
+            "status": 0
+        }
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ API Request Error: {e}")
+        return {
+            "error": "API Failed. Please try again later.",
+            "status": 0
+        }
+    except ValueError as e:
+        logger.error(f"❌ JSON Parse Error: {e}")
+        return {
+            "error": "Invalid response from API.",
             "status": 0
         }
     except Exception as e:
-        logger.error(f"❌ API call error: {e}")
+        logger.error(f"❌ Unexpected API error: {e}")
         return {
-            "error": ERRORS["api_error"].format(error=str(e)[:50]),
+            "error": str(e)[:100],
             "status": 0
         }
 
 def format_response(data):
     """Format API response for Telegram"""
     try:
+        # Check for error first
         if "error" in data:
-            return f"❌ *Error*\n{data['error']}"
+            return f"❌ *Error*\n\n{data['error']}"
         
+        # Check status
         if data.get("status") != 1:
             return ERRORS["failed_to_send"]
         
+        # Extract data with fallbacks
         player_name = data.get("PlayerNickname", "Unknown")
         player_uid = data.get("UID", "N/A")
         likes_before = data.get("LikesbeforeCommand", 0)
@@ -147,7 +162,7 @@ def format_response(data):
             f"❤️‍🔥 *Total:* `{likes_after}`"
         )
     except Exception as e:
-        logger.error(f"Format error: {e}")
+        logger.error(f"❌ Format error: {e}")
         return ERRORS["processing_error"]
 
 # ===== TELEGRAM COMMANDS =====
@@ -257,7 +272,33 @@ def process_like(message, user_id, region, uid):
         logger.info(f"📤 Processing: UID={uid}, Region={region}, User={user_id}")
         response = call_api(uid, region)
         
-        # Update tracker
+        # Check for errors
+        if "error" in response:
+            error_msg = f"⚠️ *API Error*\n\n{response['error']}"
+            try:
+                bot.edit_message_text(
+                    error_msg,
+                    chat_id=processing_msg.chat.id,
+                    message_id=processing_msg.message_id
+                )
+            except:
+                bot.reply_to(message, error_msg)
+            return
+        
+        # Check status
+        if response.get("status") != 1:
+            error_msg = "❌ *Failed to Send Like*\n\nPossible reasons:\n• UID already has max likes\n• Invalid UID\n• Try another UID or wait 24 hours"
+            try:
+                bot.edit_message_text(
+                    error_msg,
+                    chat_id=processing_msg.chat.id,
+                    message_id=processing_msg.message_id
+                )
+            except:
+                bot.reply_to(message, error_msg)
+            return
+        
+        # Update tracker only on success
         usage["used"] += 1
         usage["last_used"] = now_utc
         like_tracker[user_id] = usage
@@ -266,8 +307,7 @@ def process_like(message, user_id, region, uid):
         response_text = format_response(response)
         remaining = max_limit - usage["used"]
         
-        if response.get("status") == 1:
-            response_text += f"\n\n🔐 *Remaining:* `{remaining}/{max_limit}`"
+        response_text += f"\n\n🔐 *Remaining:* `{remaining}/{max_limit}`"
         
         bot.edit_message_text(
             response_text,
@@ -276,8 +316,11 @@ def process_like(message, user_id, region, uid):
         )
         
     except Exception as e:
-        logger.error(f"❌ Process error: {e}")
-        bot.reply_to(message, f"{ERRORS['processing_error']}\n\n`{str(e)[:100]}`")
+        logger.error(f"❌ Process error: {e}", exc_info=True)
+        try:
+            bot.reply_to(message, f"{ERRORS['processing_error']}\n\n`{str(e)[:100]}`")
+        except:
+            pass
 
 @bot.message_handler(commands=['remain'])
 def show_remain(message):
@@ -320,8 +363,8 @@ def show_stats(message):
         f"📈 *Bot Statistics:*\n\n"
         f"👥 *Total Users:* `{total_users}`\n"
         f"❤️ *Total Likes Sent:* `{total_likes_sent}`\n"
-        f"🔗 *API Status:* `{API_BASE_URL}`\n"
-        f"🕐 *Server Time:* `{get_utc_now().strftime('%Y-%m-%d %H:%M:%S')} UTC`"
+        f"🔗 *API:* `{API_BASE_URL}`\n"
+        f"🕐 *Time:* `{get_utc_now().strftime('%Y-%m-%d %H:%M:%S')} UTC`"
     )
     
     bot.reply_to(message, stats_text)
@@ -338,7 +381,8 @@ def index():
     return jsonify({
         'status': '✅ Bot Running',
         'bot_name': 'Free Fire Likes Bot',
-        'version': '2.0',
+        'bot_username': '@LIKE_ShittBOT',
+        'version': '2.1',
         'health': 'OK',
         'api_url': API_BASE_URL,
         'timestamp': get_utc_now().isoformat()
@@ -354,15 +398,19 @@ def health():
     }), 200
 
 @app.route('/stats')
-def stats():
+def flask_stats():
+    """Public stats endpoint"""
     total_users = len(like_tracker)
     total_likes = sum(u.get("used", 0) for u in like_tracker.values())
     
     return jsonify({
-        'total_users': total_users,
-        'total_likes_sent': total_likes,
+        'status': 'running',
+        'bot_username': '@LIKE_ShittBOT',
         'api_url': API_BASE_URL,
-        'timestamp': get_utc_now().isoformat()
+        'total_users': total_users,
+        'total_likes_sent_today': total_likes,
+        'required_channels': REQUIRED_CHANNELS,
+        'timestamp': get_utc_now().strftime('%Y-%m-%d %H:%M:%S UTC')
     })
 
 @app.route('/webhook', methods=['POST'])
@@ -386,12 +434,19 @@ def start_bot_polling():
         bot.remove_webhook()
         logger.info("✅ Webhook removed")
         
-        # Start polling
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        # Start polling with retry
+        while True:
+            try:
+                bot.infinity_polling(timeout=10, long_polling_timeout=5)
+            except Exception as e:
+                logger.error(f"⚠️ Polling error: {e}")
+                time.sleep(5)
+                logger.info("🔄 Retrying polling...")
+                
     except Exception as e:
-        logger.error(f"❌ Bot polling error: {e}")
-        time.sleep(5)  # Wait before retrying
+        logger.error(f"❌ Fatal bot polling error: {e}")
         sys.exit(1)
+
 # ===== MAIN =====
 
 if __name__ == '__main__':
@@ -399,6 +454,10 @@ if __name__ == '__main__':
     logger.info("🚀 Starting Free Fire Likes Bot...")
     logger.info("=" * 70)
     logger.info("📌 Mode: POLLING ONLY (webhook disabled)")
+    logger.info(f"🤖 Bot: @LIKE_ShittBOT")
+    logger.info(f"🔗 API: {API_BASE_URL}")
+    logger.info(f"👑 Owner: {OWNER_USERNAME} (ID: {OWNER_ID})")
+    logger.info(f"📢 Channels: {', '.join(REQUIRED_CHANNELS)}")
     
     # Start limit reset thread
     reset_thread = threading.Thread(target=reset_limits, daemon=True)
@@ -412,6 +471,8 @@ if __name__ == '__main__':
     
     # Start Flask app on Render (for health checks only)
     logger.info(f"🌐 Starting Flask on port {PORT} (health checks only)...")
+    logger.info("=" * 70)
+    
     try:
         app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
     except Exception as e:
