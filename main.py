@@ -226,22 +226,13 @@ def handle_like(message):
         bot.reply_to(message, ERRORS["invalid_input"])
         return
     
-    # ✅ NEW: Auto-convert Profile ID to Account ID
-    if len(uid) == 11 and uid.startswith('1'):
-        account_id = uid[1:]  # Remove first digit
-        bot.reply_to(
-            message, 
-            f"ℹ️ *Auto-converted*\nProfile ID: `{uid}`\nAccount ID: `{account_id}`\n\nProcessing...",
-            parse_mode="Markdown"
-        )
-        uid = account_id
-    elif len(uid) == 10:
-        # Already account ID, good to go
-        pass
-    else:
+    # ✅ Validate UID length (must be 10 digits)
+    if len(uid) != 10:
         bot.reply_to(
             message,
-            "⚠️ *Invalid UID Format*\n\nUID must be:\n• 10 digits (Account ID)\n• OR 11 digits starting with 1 (Profile ID)\n\nExample: `/like IND 4572194346`"
+            f"⚠️ *Invalid UID*\n\nFree Fire UID must be exactly *10 digits*\n\n"
+            f"You entered: `{uid}` ({len(uid)} digits)\n\n"
+            f"Example: `/like IND 1457219434`"
         )
         return
     
