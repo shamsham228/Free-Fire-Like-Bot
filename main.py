@@ -388,6 +388,35 @@ def index():
         'timestamp': get_utc_now().isoformat()
     })
 
+
+@app.route('/token-info')
+def token_info():
+    """Fetch and display token info from API"""
+    try:
+        response = requests.get(f"{API_BASE_URL}/token-info", timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return jsonify({
+                'status': 'success',
+                'api_url': API_BASE_URL,
+                'token_data': data,
+                'timestamp': get_utc_now().isoformat()
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': f'API returned status {response.status_code}',
+                'api_url': API_BASE_URL
+            }), response.status_code
+            
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'api_url': API_BASE_URL
+        }), 500
+
 @app.route('/health')
 def health():
     return jsonify({
